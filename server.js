@@ -1,38 +1,35 @@
 // server.js
-const express = require('express');
-const http    = require('http');
+const express   = require('express');
+const http      = require('http');
 const { Server } = require('socket.io');
 
 const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server);
 
-app.use(express.static('public'));   // 把 /public 当静态目录
+// 静的ファイル
+app.use(express.static('public'));
 
-// 记录所有在线用户的最新位姿
-const avatars = {};   // { socketId: poseData }
+io.on('connection', (socket) => {
+  console.log('[+] client', socket.id);
 
-io.on('connection', socket => {
-  console.log('🟢', socket.id, '上线');
-
-  // 把现有用户的位姿发给新用户
-  socket.emit('init', avatars);
-
-  // 监听并转发位姿更新
-  socket.on('update', pose => {
-    avatars[socket.id] = pose;
-    socket.broadcast.emit('update', { id: socket.id, pose });
+  // 位置+回転 を受信して他クライアントへブロードキャスト
+  socket.on('send_my_state', (data) => {
+    socket.broadcast.emit('update_avatar', {
+      id: socket.id,
+      position: data.position,
+      rotation: data.rotation,
+    });
   });
 
-  // 下线清理
+  // 切断通知
   socket.on('disconnect', () => {
-    console.log('🔴', socket.id, '离线');
-    delete avatars[socket.id];
-    io.emit('remove', socket.id);
+    console.log('[-] client', socket.id);
+    socket.broadcast.emit('remove_avatar', socket.id);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
-  console.log(`🚀 服务器已启动： http://localhost:${PORT}`)
+  console.log(`Server running → http://localhost:${PORT}`)
 );
