@@ -1,144 +1,19 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <title>A-Frame multi-user demo</title>
-
-  <!-- A-Frame & Socket.IO -->
+  <meta charset="UTF-8">
+  <title>A-Frame 多人互动示例</title>
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
-
-  <style>body{margin:0}</style>
+  <script src="client.js"></script>
 </head>
 <body>
-  <a-scene background="color: #ECECEC">
-    <!-- グラウンド -->
+  <a-scene>
+    <a-sky color="#ECECEC"></a-sky>
     <a-plane rotation="-90 0 0" width="20" height="20" color="#7BC8A4"></a-plane>
-
-    <!-- 自分（カメラ入り） -->
+    <!-- 自己的相机实体，绑定 avatar 与 moving 组件 -->
     <a-entity id="me" camera wasd-controls look-controls
-              position="0 1.6 3"
-              broadcast-state>
-    </a-entity>
+              avatar moving position="0 1.6 0"></a-entity>
   </a-scene>
-
-  <script>
-    //================ Socket.IO 接続 ================
-    const socket = io();
-    let myId = 'me';
-
-    socket.on('connect', () => {
-      myId = socket.id;
-      document.getElementById('me').setAttribute('id', myId);
-      console.log('my id', myId);
-    });
-
-    //=============== A-Frame component ===============
-    /**
-     * broadcast-state
-     * 100ms ごとに自身の position と rotation を送信
-     */
-    AFRAME.registerComponent('broadcast-state', {
-      schema: {interval: {default: 100}},
-      init() {
-        this.prevTime = 0;
-        this.prevPos  = new THREE.Vector3();
-        this.el.object3D.rotation.order = 'YXZ';   // yaw/pitch/roll
-      },
-      tick(t) {
-        if (t - this.prevTime < this.data.interval) return;
-
-        const pos = this.el.object3D.position;
-        const rot = this.el.object3D.rotation;
-
-        // 位置変化が小さい時は省略（省トラフィック）
-        if (pos.distanceToSquared(this.prevPos) > 0.0001) {
-          socket.emit('send_my_state', {
-            position: {x: pos.x, y: pos.y, z: pos.z},
-            rotation: {x: THREE.Math.radToDeg(rot.x),
-                       y: THREE.Math.radToDeg(rot.y),
-                       z: THREE.Math.radToDeg(rot.z)}
-          });
-          this.prevPos.copy(pos);
-        }
-        this.prevTime = t;
-      }
-    });
-
-    //========== 受信：他ユーザのアバター生成/更新 ==========
-    const scene = document.querySelector('a-scene');
-
-    // ユーザ id → root entity のキャッシュ
-    const avatars = {};
-
-    socket.on('update_avatar', ({id, position, rotation}) => {
-      if (id === myId) return; // 自分自身はスキップ
-
-      let root = avatars[id];
-      if (!root) {
-        // --------- 初回：アバターを作る ---------
-        root = document.createElement('a-entity');
-        root.setAttribute('id', id);
-        scene.appendChild(root);
-        avatars[id] = root;
-        buildAvatar(root, id);
-      }
-      // 更新
-      root.setAttribute('position',
-        `${position.x} ${position.y} ${position.z}`);
-      root.setAttribute('rotation',
-        `${rotation.x} ${rotation.y} ${rotation.z}`);
-    });
-
-    //----------- 受信：切断でアバター削除 -----------
-    socket.on('remove_avatar', (id) => {
-      const root = avatars[id];
-      if (root) {
-        root.parentNode.removeChild(root);
-        delete avatars[id];
-      }
-    });
-
-    //================ ユーティリティ ================
-    /** シンプル幾何体でアバター作成 */
-    function buildAvatar(parent, id) {
-      // 色：自分以外は赤
-      const color = 'red';
-
-      // 胴体
-      const body = document.createElement('a-box');
-      body.setAttribute('width', 0.4);
-      body.setAttribute('height', 0.6);
-      body.setAttribute('depth', 0.2);
-      body.setAttribute('color', color);
-      body.setAttribute('position', '0 0.9 0');
-      parent.appendChild(body);
-
-      // 頭
-      const head = document.createElement('a-sphere');
-      head.setAttribute('radius', 0.2);
-      head.setAttribute('color', color);
-      head.setAttribute('position', '0 1.4 0');
-      parent.appendChild(head);
-
-      // 左右腕
-      addLimb(parent, -0.35, 0.9, 0, 0.1, 0.4, 'arm');
-      addLimb(parent,  0.35, 0.9, 0, 0.1, 0.4, 'arm');
-
-      // 左右脚
-      addLimb(parent, -0.15, 0.3, 0, 0.12, 0.5, 'leg');
-      addLimb(parent,  0.15, 0.3, 0, 0.12, 0.5, 'leg');
-    }
-
-    function addLimb(parent, x, y, z, w, h, type) {
-      const limb = document.createElement('a-box');
-      limb.setAttribute('color', 'red');
-      limb.setAttribute('width', w);
-      limb.setAttribute('height', h);
-      limb.setAttribute('depth', w);
-      limb.setAttribute('position', `${x} ${y - h/2} ${z}`);
-      parent.appendChild(limb);
-    }
-  </script>
 </body>
 </html>
