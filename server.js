@@ -1,35 +1,27 @@
-// server.js
-const express   = require('express');
-const http      = require('http');
-const { Server } = require('socket.io');
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
-const io     = new Server(server);
+const io = socketIo(server);
 
-// 静的ファイル
+// 提供 public 目录下静态文件
 app.use(express.static('public'));
 
 io.on('connection', (socket) => {
-  console.log('[+] client', socket.id);
+  console.log(`New client connected: ${socket.id}`);
 
-  // 位置+回転 を受信して他クライアントへブロードキャスト
+  // 接收并广播位置与朝向
   socket.on('send_my_state', (data) => {
-    socket.broadcast.emit('update_avatar', {
-      id: socket.id,
-      position: data.position,
-      rotation: data.rotation,
-    });
+    socket.broadcast.emit('update_user_state', [socket.id, data]);
   });
 
-  // 切断通知
   socket.on('disconnect', () => {
-    console.log('[-] client', socket.id);
-    socket.broadcast.emit('remove_avatar', socket.id);
+    console.log(`Client disconnected: ${socket.id}`);
+    socket.broadcast.emit('remove_user', socket.id);
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () =>
-  console.log(`Server running → http://localhost:${PORT}`)
-);
+server.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
