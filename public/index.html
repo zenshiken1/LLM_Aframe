@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>A-Frame 多人示例</title>
+
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- Socket.io (自动匹配后端版本) -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    body { margin: 0; }
+  </style>
+</head>
+<body>
+<a-scene id="scene">
+  <!-- 地面与光源，方便调试 -->
+  <a-plane rotation="-90 0 0" width="30" height="30" color="#7BC8A4"></a-plane>
+  <a-entity light="type:directional;intensity:0.9" position="1 4 2"></a-entity>
+
+  <!-- 本地玩家摄像机 -->
+  <a-entity id="rig" position="0 1.6 2">
+    <a-entity camera look-controls wasd-controls></a-entity>
+  </a-entity>
+</a-scene>
+
+<script>
+/* ---------- 1. 连接服务器 ---------- */
+const socket = io();
+const others = {};              // { id: <a-entity> }
+
+/* ---------- 2. 生成几何体头像 ---------- */
+function newAvatar(id, color = randomColor()) {
+  const root = document.createElement('a-entity');
+  root.id = id;
+
+  // 头
+  const head = document.createElement('a-sphere');
+  head.setAttribute('radius', 0.25);
+  head.setAttribute('color', color);
+  head.id = 'head';
+  root.appendChild(head);
+
+  // 身体
+  const body = document.createElement('a-box');
+  body.setAttribute('depth', 0.3);
+  body.setAttribute('height', 0.6);
+  body.setAttribute('width', 0.4);
+  body.setAttribute('color', color);
+  body.setAttribute('position', '0 -0.55 0');
+  body.id = 'body';
+  root.appendChild(body);
+
+  // 两只手
+  ['leftHand', 'rightHand'].forEach((name, i) => {
+    const hand = document.createElement('a-box');
+    hand.setAttribute('depth', 0.2);
+    hand.setAttribute('height', 0.2);
+    hand.setAttribute('width', 0.2);
+    hand.setAttribute('color', color);
+    hand.setAttribute('position', `${i ? .35 : -.35} -0.2 0`);
+    hand.id = name;
+    root.appendChild(hand);
+  });
+
+  // 两条腿
+  ['leftLeg', 'rightLeg'].forEach((name, i) => {
+    const leg = document.createElement('a-box');
+    leg.setAttribute('depth', 0.2);
+    leg.setAttribute('height', 0.5);
+    leg.setAttribute('width', 0.2);
+    leg.setAttribute('color', color);
+    leg.setAttribute('position', `${i ? .15 : -.15} -1.1 0`);
+    leg.id = name;
+    root.appendChild(leg);
+  });
+
+  document.querySelector('a-scene').appendChild(root);
+  return root;
+}
+
+function randomColor () {
+  return '#' + (~~(Math.random()*0xffffff)).toString(16).padStart(6,'0');
+}
+
+/* ---------- 3. 位姿应用 ---------- */
+function applyPose(root, pose) {
+  for (const part in pose) {
+    const el = root.querySelector('#' + part);
+    if (!el) continue;
+    const { p, r } = pose[part];
+    el.setAttribute('position', p.join(' '));
+    el.setAttribute('rotation', r.join(' '));
+  }
+}
+
+/* ---------- 4. 服务器事件 ---------- */
+socket.on('init', all => {
+  for (const id in all) {
+    if (id === socket.id) continue;
+    others[id] = newAvatar(id);
+    applyPose(others[id], all[id]);
+  }
+});
+
+socket.on('update', ({ id, pose }) => {
+  if (!others[id]) others[id] = newAvatar(id);
+  applyPose(others[id], pose);
+});
+
+socket.on('remove', id => {
+  if (others[id]) {
+    others[id].parentNode.removeChild(others[id]);
+    delete others[id];
+  }
+});
+
+/* ---------- 5. 本地位姿采集发送 ---------- */
+function sendLoop () {
+  const cam = document.querySelector('[camera]');
+  const headP = cam.object3D.position;
+  const headR = cam.object3D.rotation;
+  const pose = {
+    head: { p: [ headP.x, headP.y, headP.z ],
+            r: [ THREE.Math.radToDeg(headR.x),
+                 THREE.Math.radToDeg(headR.y),
+                 THREE.Math.radToDeg(headR.z) ] }
+    // 这里只同步头；手/腿可接 VR 控制器再扩展
+  };
+  socket.emit('update', pose);
+  requestAnimationFrame(sendLoop);
+}
+sendLoop();
+</script>
+</body>
+</html>
