@@ -1,0 +1,106 @@
+<!-- camera.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>A-Frame Spectator Only with Auto Screenshot</title>
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <!-- 引入 Screenshot 组件 -->
+  <script src="https://unpkg.com/aframe-screenshot-component/dist/aframe-screenshot-component.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // 自动截图组件：每隔一定时间截图并上传
+    AFRAME.registerComponent('auto-screenshot', {
+      init: function() {
+        this.el.addEventListener('loaded', () => {
+          setInterval(() => {
+            try {
+              const canvas = this.el.components.screenshot.getCanvas('perspective');
+              const dataUri = canvas.toDataURL('image/png');
+              fetch('/save-screenshot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: dataUri })
+              })
+              .then(res => res.json())
+              .then(json => {
+                if (json.status === 'ok') {
+                  console.log('✅ 已保存：', json.filename);
+                } else {
+                  console.error('❌ 后端保存出错：', json);
+                }
+              })
+              .catch(err => console.error('❌ Fetch 失败：', err));
+            } catch (err) {
+              console.error('❌ 截图或发送失败：', err);
+            }
+          }, 10000); // 每 10 秒截图一次，可根据需要调整
+        });
+      }
+    });
+  </script>
+</head>
+<body>
+  <div id="llm-results" style="position: fixed; top: 10px; right: 10px; max-width: 300px;"></div>
+  <!-- 挂载 auto-screenshot -->
+  <a-scene auto-screenshot>
+    <a-sky color="black"></a-sky>
+    <a-plane rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
+
+    <!-- 只有这个本地摄像机 -->
+    <a-entity 
+      id="spectator" 
+      camera="active: true" 
+      wasd-controls="fly: true" 
+      look-controls 
+      position="0 1.6 0">
+    </a-entity>
+  </a-scene>
+
+  <script>
+    const socket = io();
+
+        // 在页面右上角显示一条 LLM 消息
+    function displayLLM(data) {
+      const container = document.getElementById('llm-results');
+      const box = document.createElement('div');
+      box.style = 'background: rgba(0,0,0,0.7); color: #fff; padding: 8px; margin-bottom: 6px; border-radius: 4px;';
+      const time = new Date().toLocaleTimeString();
+      box.textContent = `[${time}] ${data.llmResult.choices?.[0]?.text || JSON.stringify(data.llmResult)}`;
+      container.prepend(box);
+      // 最多保留 5 条
+      while (container.children.length > 1) container.removeChild(container.lastChild);
+    }
+
+    // 监听服务器下发的 LLM 广播
+    socket.on('llm_broadcast', displayLLM);
+
+    // 渲染其他用户位置
+    socket.on("update_your_pos", (msg) => {
+      const [otherId, pos] = msg;
+      let el = document.getElementById(otherId);
+      if (!el) {
+        el = document.createElement("a-sphere");
+        el.setAttribute("id", otherId);
+        el.setAttribute("radius", "0.25");
+        el.setAttribute("color", "red");
+        document.querySelector("a-scene").appendChild(el);
+      }
+      el.setAttribute("position", `${pos.x} ${pos.y} ${pos.z}`);
+    });
+
+    // 移除断开的用户
+    socket.on("remove_user", (uid) => {
+      const el = document.getElementById(uid);
+      if (el) el.remove();
+    });
+
+    // 上报自己位置（可选，视需求调节频率）
+    const cameraEl = document.getElementById('spectator');
+    setInterval(() => {
+      const pos = cameraEl.getAttribute('position');
+      socket.emit('send_my_pos', { position: pos });
+    }, 100); // 每 100 ms 上报一次位置
+  </script>
+</body>
+</html>
