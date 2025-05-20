@@ -1,19 +1,106 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>A-Frame 多人互动示例</title>
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
+    <meta charset="utf-8">
+    <title>A-Frame Moving Event Example</title>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-  <a-scene>
-    <a-sky color="#ECECEC"></a-sky>
-    <a-plane rotation="-90 0 0" width="20" height="20" color="#7BC8A4"></a-plane>
-    <!-- 自己的相机实体，绑定 avatar 与 moving 组件 -->
-    <a-entity id="me" camera wasd-controls look-controls
-              avatar moving position="0 1.6 0"></a-entity>
-  </a-scene>
+    <div id="llm-results" style="position: fixed; top: 10px; right: 10px; max-width: 300px;"></div>
+    <a-scene>
+        <a-sky color="black"></a-sky>
+        <a-plane rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
+
+        <!-- 自分 -->
+        <a-entity id="me" moving camera wasd-controls look-controls position="0 1.6 0">
+        </a-entity>
+    </a-scene>
+
+    <script>
+        const socket = io(); // Socket.IOを初期化
+        let myId = 'me'; // 初期化
+
+        // 自分のソケットIDを取得して設定
+        socket.on('connect', () => {
+            myId = socket.id;
+            document.getElementById('me').setAttribute('id', myId); // アバターのIDを更新
+            console.log(`Connected with ID: ${myId}`);
+        });
+
+                // 在页面右上角显示一条 LLM 消息
+        function displayLLM(data) {
+            const container = document.getElementById('llm-results');
+            const box = document.createElement('div');
+            box.style = 'background: rgba(0,0,0,0.7); color: #fff; padding: 8px; margin-bottom: 6px; border-radius: 4px;';
+            const time = new Date().toLocaleTimeString();
+            box.textContent = `[${time}] ${data.llmResult.choices?.[0]?.text || JSON.stringify(data.llmResult)}`;
+            container.prepend(box);
+            // 最多保留 5 条
+            while (container.children.length > 1) container.removeChild(container.lastChild);
+        }
+
+        // 监听服务器下发的 LLM 广播
+        socket.on('llm_broadcast', displayLLM);
+
+        // 自分のアバタの作成および動作をサーバに送信するための機能
+        AFRAME.registerComponent("moving", {
+            init: function () {
+                this.interval = 100; // 送信間隔（ミリ秒）
+                this.previousPosition = new THREE.Vector3();
+                this.previousTime = 0; // 初期化
+                this.entity = this.el; // A-Frameのエンティティを取得
+            },
+
+            tick: function (time) {
+                if (time - this.previousTime <= this.interval) return;
+
+                let currentPosition = this.entity.object3D.position; // entityから位置を取得
+         
+                // 位置が変わった場合のみ送信
+                if (currentPosition.distanceTo(this.previousPosition) > 0.1) {
+                    console.log('Sending position:', {
+                        x: currentPosition.x,
+                        y: currentPosition.y,
+                        z: currentPosition.z
+                    }); // ログを強化
+                    socket.emit("send_my_pos", { position: { x: currentPosition.x, y: currentPosition.y, z: currentPosition.z } });
+                    this.previousPosition.copy(currentPosition);
+                }
+
+                this.previousTime = time; // 時間を更新
+            },
+        });
+
+        // サーバからのデータを受信して他のユーザのアバタを作成・更新する機能
+        socket.on("update_your_pos", (msg) => {
+            let other_user_id = msg[0]; // 他のユーザのIDを取得
+            let other_user_position = msg[1]; // 他のユーザの位置を取得
+
+            // 他のユーザの要素が存在しない場合、アバタを作成する
+            if (!document.getElementById(other_user_id)) {
+                let other_body = document.createElement("a-sphere");
+                other_body.setAttribute("id", other_user_id);
+                other_body.setAttribute("position", `${other_user_position.x} ${other_user_position.y} ${other_user_position.z}`);
+                other_body.setAttribute("radius", "0.25"); // 半径を設定
+                other_body.setAttribute("color", "red"); // 自分以外は赤色に設定
+                document.querySelector("a-scene").appendChild(other_body); // 作った他社のアバタをシーンに追加
+            } else {
+                // 存在する場合、位置だけを更新
+                const existingBody = document.getElementById(other_user_id);
+                existingBody.setAttribute("position", `${other_user_position.x} ${other_user_position.y} ${other_user_position.z}`);
+            }
+        });
+        
+        // 他のユーザーが切断した際にアバタを削除する機能
+        socket.on("remove_user", (user_id) => {
+            console.log('Received remove_user:', user_id); // ログを追加
+            const userElement = document.getElementById(user_id);
+            if (userElement) {
+                userElement.parentNode.removeChild(userElement);
+                console.log(`Removed user: ${user_id}`);
+            }
+        });
+    </script>
 </body>
 </html>
