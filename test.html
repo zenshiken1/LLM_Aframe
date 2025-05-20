@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LM Studio Demo</title>
+</head>
+<body>
+  <h1>LM Studio 接口测试</h1>
+  <textarea id="prompt" rows="4" cols="50">请用中文介绍一下北京的春天。</textarea><br/>
+  <button id="send">发送请求</button>
+  <pre id="result"></pre>
+
+  <script>
+    document.getElementById('send').addEventListener('click', async () => {
+      const prompt = document.getElementById('prompt').value;
+      try {
+        const resp = await fetch('http://192.168.0.40:1234/v1/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // 如果 LM Studio 配置了 API Key 验证，则需要在这里加上：
+            // 'Authorization': 'Bearer YOUR_API_KEY'
+          },
+          body: JSON.stringify({
+            model: 'gemma-3-4b-it-qat',  // 替换成 LM Studio 中加载的模型名
+            prompt,
+            max_tokens: 200,
+            temperature: 0.7
+          })
+        });
+        if (!resp.ok) {
+          throw new Error(`HTTP 错误 ${resp.status}`);
+        }
+        const data = await resp.json();
+        // 不同版本可能字段名不同，下面假设返回 { choices: [{ text: "..." }] }
+        document.getElementById('result').textContent = data.choices[0].text;
+      } catch (err) {
+        console.error(err);
+        document.getElementById('result').textContent = '调用失败：' + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
